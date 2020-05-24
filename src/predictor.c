@@ -46,7 +46,7 @@ uint8_t *lBHT;
 uint32_t *lHT;
 
 // tournament prediction multiplexer
-uint8_t *predmux;
+uint8_t *chooser;
 
 void tournament_init_predictor();
 uint8_t tournament_make_prediction(uint32_t);
@@ -173,9 +173,9 @@ tournament_init_predictor()
   memset(lHT, 0, (1<<pcIndexBits) * sizeof(uint32_t));
 
   // initialize local BHT
-  predmux = (uint8_t*)malloc((1<<pcIndexBits) * sizeof(uint8_t));
+  chooser = (uint8_t*)malloc((1<<pcIndexBits) * sizeof(uint8_t));
   // initialize all BHT to weakly not-taken
-  memset(predmux, 1, (1<<pcIndexBits) * sizeof(uint8_t));
+  memset(chooser, 1, (1<<pcIndexBits) * sizeof(uint8_t));
 }
 
 // make prediction using Alpha 21264 tournament
@@ -184,7 +184,7 @@ tournament_make_prediction(uint32_t pc)
 {
   uint32_t addr = pc & pcMask;
 
-  if (*(predmux+addr) <= 1)
+  if (*(chooser+addr) <= 1)
     return *(lBHT + *(lHT+addr)) > 1 ? TAKEN : NOTTAKEN;
   else
     return *(gBHT + gh) > 1 ? TAKEN : NOTTAKEN;
@@ -196,31 +196,31 @@ tournament_train_predictor(uint32_t pc, uint8_t outcome)
 {
   uint32_t addr = pc & pcMask;
 
+  // update prediction mux
+  uint8_t gpred = *(lBHT + *(lHT+addr)) > 1 ? TAKEN : NOTTAKEN;
+  uint8_t lpred = *(gBHT + gh) > 1 ? TAKEN : NOTTAKEN;
+
   // update global history state
   uint8_t *gBHR = gBHT + gh;
   if (outcome == TAKEN)
-    *gBHR = *gBHR == 3 ? *gBHR : *gBHR + 1;
+    *gBHR = (*gBHR == 3) ? *gBHR : *gBHR + 1;
   else
-    *gBHR = *gBHR == 0 ? *gBHR : *gBHR - 1;
+    *gBHR = (*gBHR == 0) ? *gBHR : *gBHR - 1;
   // update global history
   gh = ((gh << 1) | outcome) & ghMask;
 
   // update local state
   uint8_t *lBHR = lBHT + *(lHT + addr);
   if (outcome == TAKEN)
-    *lBHR = *lBHR == 3 ? *lBHR : *lBHR + 1;
+    *lBHR = (*lBHR == 3) ? *lBHR : *lBHR + 1;
   else
-    *lBHR = *lBHR == 0 ? *lBHR : *lBHR - 1;
+    *lBHR = (*lBHR == 0) ? *lBHR : *lBHR - 1;
   // update local history
   *(lHT + addr) = ((*(lHT + addr) << 1) | outcome) & lhMask;
 
-  // update prediction mux
-  uint8_t gpred = *(lBHT + *(lHT+addr)) > 1 ? TAKEN : NOTTAKEN;
-  uint8_t lpred = *(gBHT + gh) > 1 ? TAKEN : NOTTAKEN;
-
-  uint8_t *mux = predmux + addr;
+  uint8_t *mux = chooser + addr;
   if (gpred != outcome && lpred == outcome)
-    *mux = *mux == 0 ? *mux : *mux - 1;
+    *mux = (*mux == 0) ? *mux : *mux - 1;
   else if (gpred == outcome && lpred != outcome)
-    *mux = *mux == 3 ? *mux : *mux + 1;
+    *mux = (*mux == 3) ? *mux : *mux + 1;
 }
