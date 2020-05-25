@@ -173,9 +173,9 @@ tournament_init_predictor()
   memset(lHT, 0, (1<<pcIndexBits) * sizeof(uint32_t));
 
   // initialize local BHT
-  chooser = (uint8_t*)malloc((1<<pcIndexBits) * sizeof(uint8_t));
+  chooser = (uint8_t*)malloc((1<<ghistoryBits) * sizeof(uint8_t));
   // initialize all BHT to weakly not-taken
-  memset(chooser, 1, (1<<pcIndexBits) * sizeof(uint8_t));
+  memset(chooser, 1, (1<<ghistoryBits) * sizeof(uint8_t));
 }
 
 // make prediction using Alpha 21264 tournament
@@ -184,7 +184,7 @@ tournament_make_prediction(uint32_t pc)
 {
   uint32_t addr = pc & pcMask;
 
-  if (*(chooser+addr) <= 1)
+  if (*(chooser+gh) > 1)
     return *(lBHT + *(lHT+addr)) > 1 ? TAKEN : NOTTAKEN;
   else
     return *(gBHT + gh) > 1 ? TAKEN : NOTTAKEN;
@@ -197,8 +197,14 @@ tournament_train_predictor(uint32_t pc, uint8_t outcome)
   uint32_t addr = pc & pcMask;
 
   // update prediction mux
-  uint8_t gpred = *(lBHT + *(lHT+addr)) > 1 ? TAKEN : NOTTAKEN;
-  uint8_t lpred = *(gBHT + gh) > 1 ? TAKEN : NOTTAKEN;
+  uint8_t lpred = *(lBHT + *(lHT+addr)) > 1 ? TAKEN : NOTTAKEN;
+  uint8_t gpred = *(gBHT + gh) > 1 ? TAKEN : NOTTAKEN;
+
+  uint8_t *mux = chooser + gh;
+  if (gpred != outcome && lpred == outcome)
+    *mux = (*mux == 3) ? *mux : *mux + 1;
+  else if (gpred == outcome && lpred != outcome)
+    *mux = (*mux == 0) ? *mux : *mux - 1;
 
   // update global history state
   uint8_t *gBHR = gBHT + gh;
@@ -217,10 +223,4 @@ tournament_train_predictor(uint32_t pc, uint8_t outcome)
     *lBHR = (*lBHR == 0) ? *lBHR : *lBHR - 1;
   // update local history
   *(lHT + addr) = ((*(lHT + addr) << 1) | outcome) & lhMask;
-
-  uint8_t *mux = chooser + addr;
-  if (gpred != outcome && lpred == outcome)
-    *mux = (*mux == 0) ? *mux : *mux - 1;
-  else if (gpred == outcome && lpred != outcome)
-    *mux = (*mux == 3) ? *mux : *mux + 1;
 }
