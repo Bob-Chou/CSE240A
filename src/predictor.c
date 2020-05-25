@@ -24,9 +24,9 @@ const char *email       = "EMAIL";
 const char *bpName[4] = { "Static", "Gshare",
                           "Tournament", "Custom" };
 
-int ghistoryBits = 9; // Number of bits used for Global History
-int lhistoryBits = 10; // Number of bits used for Local History
-int pcIndexBits = 10;  // Number of bits used for PC index
+int ghistoryBits; // Number of bits used for Global History
+int lhistoryBits; // Number of bits used for Local History
+int pcIndexBits;  // Number of bits used for PC index
 int bpType;       // Branch Prediction Type
 int verbose;
 
@@ -52,6 +52,13 @@ void tournament_init_predictor();
 uint8_t tournament_make_prediction(uint32_t);
 void tournament_train_predictor(uint32_t, uint8_t);
 
+// perceptron predictor parameter table
+uint8_t lastpred;
+int score;
+int* params;
+void perceptron_init_predictor();
+uint8_t perceptron_make_prediction(uint32_t);
+void perceptron_train_predictor(uint32_t, uint8_t);
 //------------------------------------//
 //      Predictor Data Structures     //
 //------------------------------------//
@@ -80,6 +87,8 @@ init_predictor()
       tournament_init_predictor();
       break;
     case CUSTOM:
+      perceptron_init_predictor();
+      break;
     default:
       break;
   }
@@ -104,6 +113,7 @@ make_prediction(uint32_t pc)
     case TOURNAMENT:
       return tournament_make_prediction(pc);
     case CUSTOM:
+      return perceptron_make_prediction(pc);
     default:
       break;
   }
@@ -127,6 +137,7 @@ train_predictor(uint32_t pc, uint8_t outcome)
     case TOURNAMENT:
       tournament_train_predictor(pc, outcome);
     case CUSTOM:
+      perceptron_train_predictor(pc, outcome);
     default:
       break;
   }
@@ -152,6 +163,7 @@ tournament_init_predictor()
     lhMask <<= 1;
     lhMask |= 1;
   }
+
   // initialize local BHT
   lBHT = (uint8_t*)malloc((1<<lhistoryBits) * sizeof(uint8_t));
   // initialize all BHT to weakly not-taken
@@ -223,4 +235,73 @@ tournament_train_predictor(uint32_t pc, uint8_t outcome)
     *lBHR = (*lBHR == 0) ? *lBHR : *lBHR - 1;
   // update local history
   *(lHT + addr) = ((*(lHT + addr) << 1) | outcome) & lhMask;
+}
+
+//------------------------------------//
+//         Perceptron Logics          //
+//------------------------------------//
+// initiliaze perceptron
+void
+perceptron_init_predictor()
+{
+  pcIndexBits = 10;
+  ghistoryBits = 9;
+  // initialize pc mask
+  for (int i = 0; i < pcIndexBits; ++i) {
+    pcMask <<= 1;
+    pcMask |= 1;
+  }
+
+  // initialize global history mask
+  for (int i = 0; i < ghistoryBits; ++i) {
+    ghMask <<= 1;
+    ghMask |= 1;
+  }
+
+  // initialize parameter table
+  params = (int*)malloc((1<<pcIndexBits) * (ghistoryBits + 1) * sizeof(int));
+  memset(params, 0, (1<<pcIndexBits) * (ghistoryBits + 1) * sizeof(int));
+}
+
+// make prediction using perceptron predictor
+uint8_t
+perceptron_make_prediction(uint32_t pc)
+{
+  uint32_t addr = pc & pcMask;
+  int *param = params + ((addr ^ gh) & pcMask) * (ghistoryBits + 1);
+
+  score = param[0];
+  uint32_t ghist = gh;
+  for (int i = 0; i < ghistoryBits; ++i) {
+    int h = (ghist & 1) == 0 ? -1 : 1;
+    score += h * param[ghistoryBits - i];
+    ghist >>= 1;
+  }
+
+  lastpred = score < 0 ? NOTTAKEN : TAKEN;
+  return lastpred;
+}
+
+// make prediction using  perceptron predictor
+void
+perceptron_train_predictor(uint32_t pc, uint8_t outcome)
+{
+  uint32_t addr = pc & pcMask;
+  int *param = params + ((addr ^ gh) & pcMask) * (ghistoryBits + 1);
+
+  uint32_t ghist = gh;
+  int weight_min = -(1<<5) - 1;
+  int weight_max = (1<<5) - 1;
+  if (lastpred != outcome || (score > weight_min && score < weight_max)) {
+    int grad = outcome == TAKEN ? 1 : -1;
+    param[0] += grad;
+    for (int i = 0; i < ghistoryBits; ++i) {
+      int h = (ghist & 1) == 0 ? -1 : 1;
+      param[ghistoryBits - i] += h * grad;
+      ghist >>= 1;
+    }
+  }
+
+  // update global history
+  gh = ((gh << 1) | outcome) & ghMask;
 }
